@@ -33,11 +33,13 @@ class BiliUser:
         self.medals = []  # 用户所有勋章
         self.medalsNeedDo = []  # 用户所有勋章，等级小于20的 未满1500的
         self.medalsOthers = []  # 剩余勋章，仅观看直播
+        self.medalsLiving = [] # 在直播中的勋章
+        self.medalsNoLiving = [] # 不在直播中的勋章
 
         self.session = ClientSession(timeout=ClientTimeout(total=3), trust_env = True)
         self.api = BiliApi(self, self.session)
 
-        self.retryTimes = 0  # 点赞任务重试次数
+        self.retryTimes = 0  # 任务重试次数
         self.maxRetryTimes = 10  # 最大重试次数
         self.message = []
         self.errmsg = ["错误日志："]
@@ -62,22 +64,6 @@ class BiliUser:
         self.isLogin = True
         return True
 
-    async def doSign(self):
-        try:
-            signInfo = await self.api.doSign()
-            self.log.log("SUCCESS", "签到成功,本月签到次数: {}/{}".format(signInfo['hadSignDays'], signInfo['allDays']))
-            self.message.append(f"【{self.name}】 签到成功,本月签到次数: {signInfo['hadSignDays']}/{signInfo['allDays']}")
-        except Exception as e:
-            self.log.log("ERROR", e)
-            self.errmsg.append(f"【{self.name}】" + str(e))
-        userInfo = await self.api.getUserInfo()
-        self.log.log(
-            "INFO", "当前用户UL等级: {} ,还差 {} 经验升级".format(userInfo['exp']['user_level'], userInfo['exp']['unext'])
-        )
-        self.message.append(
-            f"【{self.name}】 UL等级: {userInfo['exp']['user_level']} ,还差 {userInfo['exp']['unext']} 经验升级"
-        )
-
     async def getMedals(self):
         """
         获取用户勋章
@@ -85,22 +71,43 @@ class BiliUser:
         self.medals.clear()
         self.medalsNeedDo.clear()
         self.medalsOthers.clear()
+        self.medalsLiving.clear()
+        self.medalsNoLiving.clear()
+
         async for medal in self.api.getFansMedalandRoomID():
-            if self.whiteList == [0]:
-                if medal['medal']['target_id'] in self.bannedList:
-                    self.log.warning(f"{medal['anchor_info']['nick_name']} 在黑名单中，已过滤")
+            # 安全访问嵌套字段（保留防御性编程）
+            target_id = medal.get('medal', {}).get('target_id')
+            room_info = medal.get('room_info', {})
+            anchor_info = medal.get('anchor_info', {})
+
+            # 白名单逻辑处理
+            if self.whiteList == [0]:  # 黑名单模式
+                if target_id in self.bannedList:
+                    self.log.warning(f"{anchor_info.get('nick_name', '未知用户')} 在黑名单中，已过滤")
                     continue
-                self.medals.append(medal) if medal['room_info']['room_id'] != 0 else ...
+                if room_info.get('room_id') != 0:
+                    self.medals.append(medal)
+            else:  # 白名单模式
+                if target_id in self.whiteList and room_info.get('room_id') != 0:
+                    self.medals.append(medal)
+                    self.log.success(f"{anchor_info.get('nick_name', '未知用户')} 在白名单中，加入任务")
+
+        # 单次遍历处理所有分类
+        for medal in self.medals:
+            medal_data = medal.get('medal', {})
+            room_status = medal.get('room_info', {}).get('living_status', 0)
+
+            # 直播状态分类
+            if room_status == 1:
+                self.medalsLiving.append(medal)
             else:
-                if medal['medal']['target_id'] in self.whiteList:
-                    self.medals.append(medal) if medal['room_info']['room_id'] != 0 else ...
-                    self.log.success(f"{medal['anchor_info']['nick_name']} 在白名单中，加入任务")
-        [
-            self.medalsNeedDo.append(medal)
-            if medal['medal']['level'] < 20 and medal['medal']['today_feed'] < 1500
-            else self.medalsOthers.append(medal)
-            for medal in self.medals
-        ]
+                self.medalsNoLiving.append(medal)
+
+            # 任务分类
+            if medal_data.get('level', 0) < 20 and medal_data.get('today_feed', 0) < 1500:
+                self.medalsNeedDo.append(medal)
+            else:
+                self.medalsOthers.append(medal)
 
     async def like_v3(self, failedMedals: list = []):
         if self.config['LIKE_CD'] == 0:
@@ -108,7 +115,7 @@ class BiliUser:
             return
         try:
             if not failedMedals:
-                failedMedals = self.medals
+                failedMedals = self.medalsLiving
             if not self.config['ASYNC']:
                 self.log.log("INFO", "同步点赞任务开始....")
                 for index, medal in enumerate(failedMedals):
@@ -121,7 +128,7 @@ class BiliUser:
                         await asyncio.sleep(self.config['LIKE_CD'])
                     self.log.log(
                         "SUCCESS",
-                        f"{medal['anchor_info']['nick_name']} 点赞{i+1}次成功 {index+1}/{len(self.medals)}",
+                        f"{medal['anchor_info']['nick_name']} 点赞{i+1}次成功 {index+1}/{len(self.medalsLiving)}",
                     )
             else:
                 self.log.log("INFO", "异步点赞任务开始....")
@@ -139,9 +146,6 @@ class BiliUser:
                     await asyncio.sleep(self.config['LIKE_CD'])
             await asyncio.sleep(10)
             self.log.log("SUCCESS", "点赞任务完成")
-            # finallyMedals = [medal for medal in self.medalsNeedDo if medal['medal']['today_feed'] >= 100]
-            # msg = "20级以下牌子共 {} 个,完成点赞任务 {} 个".format(len(self.medalsNeedDo), len(finallyMedals))
-            # self.log.log("INFO", msg)
         except Exception as e:
             self.log.exception("点赞任务异常")
             self.errmsg.append(f"【{self.name}】 点赞任务异常,请检查日志")
@@ -153,21 +157,25 @@ class BiliUser:
         if not self.config['DANMAKU_CD']:
             self.log.log("INFO", "弹幕任务关闭")
             return
-        self.log.log("INFO", "弹幕打卡任务开始....(预计 {} 秒完成)".format(len(self.medals) * self.config['DANMAKU_CD']))
+        self.log.log("INFO", "弹幕打卡任务开始....(预计 {} 秒完成)".format(len(self.medalsNoLiving) * self.config['DANMAKU_CD'] * 10))
         n = 0
         successnum = 0
-        for medal in self.medals:
+        for medal in self.medalsNoLiving:
             n += 1
             (await self.api.wearMedal(medal['medal']['medal_id'])) if self.config['WEARMEDAL'] else ...
             try:
-                danmaku = await self.api.sendDanmaku(medal['room_info']['room_id'])
-                successnum+=1
-                self.log.log(
-                    "DEBUG",
-                    "{} 房间弹幕打卡成功: {} ({}/{})".format(
-                        medal['anchor_info']['nick_name'], danmaku, n, len(self.medals)
-                    ),
-                )
+                j = 0
+                for i in range(10):
+                    danmaku = await self.api.sendDanmaku(medal['room_info']['room_id'])
+                    j+=1
+                    successnum+=1
+                    self.log.log(
+                        "DEBUG",
+                        "{} 房间弹幕第{}/{}次打卡成功: {} ({}/{})".format(
+                            medal['anchor_info']['nick_name'], j, 10, danmaku, n, len(self.medals)
+                        ),
+                    )
+                    await asyncio.sleep(self.config['DANMAKU_CD'])
             except Exception as e:
                 self.log.log("ERROR", "{} 房间弹幕打卡失败: {}".format(medal['anchor_info']['nick_name'], e))
                 self.errmsg.append(f"【{self.name}】 {medal['anchor_info']['nick_name']} 房间弹幕打卡失败: {str(e)}")
@@ -185,7 +193,6 @@ class BiliUser:
             self.errmsg.append("登录失败 可能是 access_key 过期 , 请重新获取")
             await self.session.close()
         else:
-            await self.doSign()
             await self.getMedals()
 
     async def start(self):
