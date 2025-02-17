@@ -176,8 +176,8 @@ class BiliUser:
                     successnum+=1
                     self.log.log(
                         "DEBUG",
-                        "{} 房间弹幕第{}/{}次打卡成功: {} ({}/{})".format(
-                            medal['anchor_info']['nick_name'], j, 10, danmaku, n, len(self.medals)
+                        "{} 房间弹幕第({}/{})次打卡成功: {} ({}/{})".format(
+                            medal['anchor_info']['nick_name'], j, 10, danmaku, n, len(self.medalsNoLiving)
                         ),
                     )
                     await asyncio.sleep(self.config['DANMAKU_CD'])
