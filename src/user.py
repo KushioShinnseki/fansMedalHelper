@@ -189,7 +189,7 @@ class BiliUser:
         if hasattr(self, 'initialMedal'):
             (await self.api.wearMedal(self.initialMedal['medal_id'])) if self.config['WEARMEDAL'] else ...
         self.log.log("SUCCESS", "弹幕打卡任务完成")
-        self.message.append(f"【{self.name}】 弹幕打卡任务完成 {successnum}/{len(self.medals)}")
+        self.message.append(f"【{self.name}】 弹幕打卡任务完成 {successnum}/{len(self.medalsNoLiving)}")
 
     async def init(self):
         if not await self.loginVerify():
