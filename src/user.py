@@ -35,7 +35,6 @@ class BiliUser:
         self.medalsOthers = []  # 剩余勋章，仅观看直播
         self.medalsLiving = [] # 在直播中的勋章
         self.medalsNoLiving = [] # 不在直播中的勋章
-        self.medalsNoLighted = [] # 未点亮的勋章
 
         self.session = ClientSession(timeout=ClientTimeout(total=3), trust_env = True)
         self.api = BiliApi(self, self.session)
@@ -243,14 +242,6 @@ class BiliUser:
         ):
             if len(l) > 0:
                 self.message.append(f"{n}" + ' '.join(l[:5]) + f"{'等' if len(l) > 5 else ''}" + f' {len(l)}个')
-
-        if len(self.medalsNoLighted):
-            medalsLighted = []
-            for medal in self.medalsNoLighted:
-                nick_name = medal['anchor_info']['nick_name']
-                medalsLighted.append(nick_name)
-            self.message.append(f"【{self.name}】 今日未点亮的牌子如下：")
-            self.message.append("已尝试点亮："+' '.join(medalsLighted[:5]) + f"{'等' if len(l) > 5 else ''}" + f' {len(l)}个')
 
         if hasattr(self, 'initialMedal'):
             initialMedalInfo = await self.api.getMedalsInfoByUid(self.initialMedal['target_id'])
