@@ -7,18 +7,27 @@
 
 <p>当前版本：0.3.9-yokinanya</p>
 
+
  </div>
 
 **TODO**
 
+-   [x] ~~每日直播区签到~~ (直播区签到已下线)
 -   [x] 点亮灯牌：主播开播时使用点赞30次点亮，未开播时发送10条弹幕点亮
--   [x] 每日观看 25 分钟 （1500 亲密度）
+-   [x] 每日观看 25 分钟 (1500 亲密度)
 -   [x] 每日应援团签到 (如果有的话) （10 亲密度）
 -   [x] 多账号支持
 -   [x] 微信推送通知
 -   [x] 多平台推送通知（可选）
 
 <small>ps: 新版 B 站粉丝牌的亲密度每一个牌子都将单独计算  </small>
+
+---
+### 修改说明
+
+本分支将**不会**合并到[原仓库](https://github.com/XiaoMiku01/fansMedalHelper)，维持独立更新
+1. 点亮灯牌加入开播判断
+2. 将openpush更改为requirements.txt引入
 
 ---
 
@@ -45,16 +54,3 @@
 -   原仓库 [XiaoMiku01/fansMedalHelper](https://github.com/XiaoMiku01/fansMedalHelper)
 
 ---
-
-## 历史 Star 数
-
-[![Stargazers over time](https://starchart.cc/XiaoMiku01/fansMedalHelper.svg)](https://starchart.cc/XiaoMiku01/fansMedalHelper)
-
-### 赞助
-
-<img src="http://i0.hdslb.com/bfs/album/c267037c9513b8e44bc6ec95dbf772ff0439dce6.jpg" width="500" />
-
-### 鸣谢
-
-[<img src="https://s3.amazonaws.com/erxes/github/cloudflare.png" height="200"/>](https://www.cloudflare.com/)
-[<img src="https://user-images.githubusercontent.com/11474360/112592917-baa00600-8e41-11eb-9da4-ecb53bb3c2fa.png" width="200"/>](https://jb.gg/OpenSource)
