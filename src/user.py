@@ -100,7 +100,6 @@ class BiliUser:
 
             # 勋章点亮分类
             if medal_lighted == 0:
-                self.medalsNoLighted.append(medal)
                 # 直播状态分类
                 if room_status == 1:
                     self.medalsLiving.append(medal)
