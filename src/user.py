@@ -160,7 +160,7 @@ class BiliUser:
         if not self.config['DANMAKU_CD']:
             self.log.log("INFO", "弹幕任务关闭")
             return
-        self.log.log("INFO", "弹幕打卡任务开始....(预计 {} 秒完成)".format(len(self.medalsNoLiving) * self.config['DANMAKU_CD'] * 10))
+        self.log.log("INFO", "弹幕打卡任务开始....(预计 {} 秒完成)".format(len(self.medalsNoLiving) * self.config['DANMAKU_CD'] * self.config['DANMAKU_NUM']))
         n = 0
         successnum = 0
         for medal in self.medalsNoLiving:
@@ -168,14 +168,14 @@ class BiliUser:
             (await self.api.wearMedal(medal['medal']['medal_id'])) if self.config['WEARMEDAL'] else ...
             try:
                 j = 0
-                for i in range(10):
+                for i in range(self.config['DANMAKU_NUM']):
                     danmaku = await self.api.sendDanmaku(medal['room_info']['room_id'])
                     j+=1
                     successnum+=1
                     self.log.log(
                         "DEBUG",
                         "{} 房间弹幕第({}/{})次打卡成功: {} ({}/{})".format(
-                            medal['anchor_info']['nick_name'], j, 10, danmaku, n, len(self.medalsNoLiving)
+                            medal['anchor_info']['nick_name'], j, self.config['DANMAKU_NUM'], danmaku, n, len(self.medalsNoLiving)
                         ),
                     )
                     await asyncio.sleep(self.config['DANMAKU_CD'])
