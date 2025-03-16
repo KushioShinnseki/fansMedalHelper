@@ -29,6 +29,7 @@ try:
     assert users["LIKE_CD"] >= 0, "LIKE_CD参数错误"
     # assert users['SHARE_CD'] >= 0, "SHARE_CD参数错误"
     assert users["DANMAKU_CD"] >= 0, "DANMAKU_CD参数错误"
+    assert users["DANMAKU_NUM"] >= 0, "DANMAKU_NUM参数错误"
     assert users["WATCHINGLIVE"] >= 0, "WATCHINGLIVE参数错误"
     assert users["WEARMEDAL"] in [0, 1], "WEARMEDAL参数错误"
     assert users.get("WATCHINGALL", 0) in [0, 1], "WATCHINGALL参数错误"
@@ -37,6 +38,7 @@ try:
         "LIKE_CD": users["LIKE_CD"],
         # "SHARE_CD": users['SHARE_CD'],
         "DANMAKU_CD": users["DANMAKU_CD"],
+        "DANMAKU_NUM": users.get("DANMAKU_NUM", 10),
         "WATCHINGLIVE": users["WATCHINGLIVE"],
         "WEARMEDAL": users["WEARMEDAL"],
         "SIGNINGROUP": users.get("SIGNINGROUP", 2),
