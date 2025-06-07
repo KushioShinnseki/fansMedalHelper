@@ -9,6 +9,7 @@ import json
 from typing import Union
 from loguru import logger
 from urllib.parse import urlencode, urlparse
+from typing import AsyncGenerator
 
 
 from aiohttp import ClientSession
@@ -135,7 +136,7 @@ class BiliApi:
         async with self.session.post(*args, **kwargs) as resp:
             return self.__check_response(await resp.json())
 
-    async def getFansMedalandRoomID(self) -> dict:
+    async def getFansMedalandRoomID(self) -> AsyncGenerator[dict, None]:
         """
         获取用户粉丝勋章和直播间ID
         """
@@ -310,18 +311,18 @@ class BiliApi:
         }
         return await self.__get(url, params=SingableDict(params).signed, headers=self.headers)
 
-    async def doSign(self):
-        """
-        直播区签到
-        """
-        url = "https://api.live.bilibili.com/rc/v1/Sign/doSign"
-        params = {
-            "access_key": self.u.access_key,
-            "actionKey": "appkey",
-            "appkey": Crypto.APPKEY,
-            "ts": int(time.time()),
-        }
-        return await self.__get(url, params=SingableDict(params).signed, headers=self.headers)
+    # async def doSign(self):
+    #     """
+    #     直播区签到
+    #     """
+    #     url = "https://api.live.bilibili.com/rc/v1/Sign/doSign"
+    #     params = {
+    #         "access_key": self.u.access_key,
+    #         "actionKey": "appkey",
+    #         "appkey": Crypto.APPKEY,
+    #         "ts": int(time.time()),
+    #     }
+    #     return await self.__get(url, params=SingableDict(params).signed, headers=self.headers)
 
     async def getUserInfo(self):
         """
