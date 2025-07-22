@@ -1,325 +1,194 @@
-from aiohttp import ClientSession, ClientTimeout
-import sys
-import os
+"""
+用户管理模块 - 重构版
+"""
 import asyncio
 import uuid
-from loguru import logger
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from aiohttp import ClientSession, ClientTimeout
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-logger.remove()
-logger.add(
-    sys.stdout,
-    colorize=True,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> <blue> {extra[user]} </blue> <level>{message}</level>",
-    backtrace=True,
-    diagnose=True,
-)
+from .api import BiliApi
+from .services import AuthService, MedalService, LikeService, DanmakuService, HeartbeatService, GroupService
+from .stats_service import StatsService
+from .models import MedalWithRoom, UserInfo
+from .constants import BiliConstants
+from .exceptions import LoginError, BiliException
+from .logger_manager import LogManager
+from .utils import safe_get
 
 
 class BiliUser:
-    def __init__(self, access_token: str, whiteUIDs: str = '', bannedUIDs: str = '', config: dict = {}):
-        from .api import BiliApi
+    """B站用户类"""
 
-        self.mid, self.name = 0, ""
-        self.access_key = access_token  # 登录凭证
-        try:
-            self.whiteList = list(map(lambda x: int(x if x else 0), str(whiteUIDs).split(',')))  # 白名单UID
-            self.bannedList = list(map(lambda x: int(x if x else 0), str(bannedUIDs).split(',')))  # 黑名单
-        except ValueError:
-            raise ValueError("白名单或黑名单格式错误")
-        self.config = config
-        self.medals = []  # 用户所有勋章
-        self.medalsNeedDo = []  # 用户所有勋章，等级小于20的 未满1500的
-        self.medalsOthers = []  # 剩余勋章，仅观看直播
-        self.medalsLiving = [] # 在直播中的勋章
-        self.medalsNoLiving = [] # 不在直播中的勋章
+    def __init__(self, access_token: str, white_uids: str = '', banned_uids: str = '', config: Dict[str, Any] = None):
+        # 基本信息
+        self.mid: int = 0
+        self.name: str = ""
+        self.access_key: str = access_token
+        self.config: Dict[str, Any] = config or {}
+        self.is_login: bool = False
 
-        self.session = ClientSession(timeout=ClientTimeout(total=3), trust_env = True)
+        # 解析白名单和黑名单
+        self._parse_uid_lists(white_uids, banned_uids)
+
+        # 勋章列表
+        self.medals: List[Dict[str, Any]] = []
+        self.medalsNeedDo: List[Dict[str, Any]] = []
+        self.medalsOthers: List[Dict[str, Any]] = []
+        self.medalsLiving: List[Dict[str, Any]] = []
+        self.medalsNoLiving: List[Dict[str, Any]] = []
+
+        # 会话和API
+        self.session = ClientSession(
+            timeout=ClientTimeout(total=3), trust_env=True)
         self.api = BiliApi(self, self.session)
 
-        self.retryTimes = 0  # 任务重试次数
-        self.maxRetryTimes = 10  # 最大重试次数
-        self.message = []
-        self.errmsg = ["错误日志："]
-        self.uuids = [str(uuid.uuid4()) for _ in range(2)]
+        # 业务服务层
+        self.auth_service = AuthService(self.api)
+        self.medal_service = MedalService(
+            self.api, self.whiteList, self.bannedList)
+        self.like_service = LikeService(self.api)
+        self.danmaku_service = DanmakuService(self.api)
+        self.heartbeat_service = HeartbeatService(self.api)
+        self.group_service = GroupService(self.api)
+        self.stats_service = None  # 将在登录验证后初始化
 
-    async def loginVerify(self) -> bool:
-        """
-        登录验证
-        """
-        loginInfo = await self.api.loginVerift()
-        self.mid, self.name = loginInfo['mid'], loginInfo['name']
-        self.log = logger.bind(user=self.name)
-        if loginInfo['mid'] == 0:
-            self.isLogin = False
-            return False
-        userInfo = await self.api.getUserInfo()
-        if userInfo['medal']:
-            medalInfo = await self.api.getMedalsInfoByUid(userInfo['medal']['target_id'])
-            if medalInfo['has_fans_medal']:
-                self.initialMedal = medalInfo['my_fans_medal']
-        self.log.log("SUCCESS", str(loginInfo['mid']) + " 登录成功")
-        self.isLogin = True
-        return True
+        # 任务状态
+        self.retry_times: int = 0
+        self.max_retry_times: int = BiliConstants.Tasks.MAX_RETRY_TIMES
+        self.message: List[str] = []
+        self.errmsg: List[str] = ["错误日志："]
+        self.uuids: List[str] = [str(uuid.uuid4()) for _ in range(2)]
 
-    async def getMedals(self):
-        """
-        获取用户勋章
-        """
-        self.medals.clear()
-        self.medalsNeedDo.clear()
-        self.medalsOthers.clear()
-        self.medalsLiving.clear()
-        self.medalsNoLiving.clear()
+        # 日志
+        self.log = LogManager.get_system_logger()  # 初始化系统日志，登录成功后会更新为用户专用日志
 
-        async for medal in self.api.getFansMedalandRoomID():
-            # 安全访问嵌套字段（保留防御性编程）
-            target_id = medal.get('medal', {}).get('target_id')
-            room_info = medal.get('room_info', {})
-            anchor_info = medal.get('anchor_info', {})
-
-            # 白名单逻辑处理
-            if self.whiteList == [0]:  # 黑名单模式
-                if target_id in self.bannedList:
-                    self.log.warning(f"{anchor_info.get('nick_name', '未知用户')} 在黑名单中，已过滤")
-                    continue
-                if room_info.get('room_id') != 0:
-                    self.medals.append(medal)
-            else:  # 白名单模式
-                if target_id in self.whiteList and room_info.get('room_id') != 0:
-                    self.medals.append(medal)
-                    self.log.success(f"{anchor_info.get('nick_name', '未知用户')} 在白名单中，加入任务")
-
-        # 单次遍历处理所有分类
-        for medal in self.medals:
-            medal_data = medal.get('medal', {})
-            room_status = medal.get('room_info', {}).get('living_status', 0)
-            medal_lighted = medal_data.get("is_lighted", 0)
-
-            # 勋章点亮分类
-            if medal_lighted == 0:
-                # 直播状态分类
-                if room_status == 1:
-                    self.medalsLiving.append(medal)
-                else:
-                    self.medalsNoLiving.append(medal)
-
-            # 任务分类
-            if medal_data.get('level', 0) < 20 and medal_data.get('today_feed', 0) < 1500:
-                self.medalsNeedDo.append(medal)
-            else:
-                self.medalsOthers.append(medal)
-
-    async def like_v3(self, failedMedals: list = []):
-        if self.config['LIKE_CD'] == 0:
-            self.log.log("INFO", "点赞任务已关闭")
-            return
+    def _parse_uid_lists(self, white_uids: str, banned_uids: str):
+        """解析白名单和黑名单"""
         try:
-            if not failedMedals:
-                failedMedals = self.medalsLiving
-            if not self.config['ASYNC']:
-                self.log.log("INFO", "同步点赞任务开始....")
-                for index, medal in enumerate(failedMedals):
-                    for i in range(30):
-                        tasks = []
-                        tasks.append(
-                            self.api.likeInteractV3(medal['room_info']['room_id'], medal['medal']['target_id'],self.mid)
-                        ) if self.config['LIKE_CD'] else ...
-                        await asyncio.gather(*tasks)
-                        await asyncio.sleep(self.config['LIKE_CD'])
-                    self.log.log(
-                        "SUCCESS",
-                        f"{medal['anchor_info']['nick_name']} 点赞{i+1}次成功 {index+1}/{len(self.medalsLiving)}",
-                    )
-            else:
-                self.log.log("INFO", "异步点赞任务开始....")
-                for i in range(35):
-                    allTasks = []
-                    for medal in failedMedals:
-                        allTasks.append(
-                            self.api.likeInteractV3(medal['room_info']['room_id'], medal['medal']['target_id'],self.mid)
-                        ) if self.config['LIKE_CD'] else ...
-                    await asyncio.gather(*allTasks)
-                    self.log.log(
-                        "SUCCESS",
-                        f"{medal['anchor_info']['nick_name']} 异步点赞{i+1}次成功",
-                    )
-                    await asyncio.sleep(self.config['LIKE_CD'])
-            await asyncio.sleep(10)
-            self.log.log("SUCCESS", "点赞任务完成")
+            self.whiteList = [
+                int(x) if x else 0 for x in str(white_uids).split(',')]
+            self.bannedList = [
+                int(x) if x else 0 for x in str(banned_uids).split(',')]
+        except ValueError:
+            raise ValueError("白名单或黑名单格式错误")
+
+    async def login_verify(self) -> bool:
+        """登录验证"""
+        try:
+            user_info = await self.auth_service.execute()
+            self.mid = user_info.mid
+            self.name = user_info.name
+
+            # 初始化日志和统计服务
+            self.log = LogManager.get_logger(self.name)
+            self.stats_service = StatsService(self.api, self.name, self.log)
+
+            # 重新初始化服务，使用用户专有的日志记录器
+            self.medal_service = MedalService(
+                self.api, self.whiteList, self.bannedList, self.log)
+            self.like_service = LikeService(self.api, self.log)
+            self.danmaku_service = DanmakuService(self.api, self.log)
+            self.heartbeat_service = HeartbeatService(self.api, self.log)
+            self.group_service = GroupService(self.api, self.log)
+
+            # 获取初始佩戴勋章信息
+            if user_info.medal:
+                medal_info = await self.api.getMedalsInfoByUid(user_info.medal['target_id'])
+                if medal_info.get('has_fans_medal'):
+                    self.initialMedal = medal_info['my_fans_medal']
+
+            self.log.success(f"{self.mid} 登录成功")
+            self.is_login = True
+            return True
+
+        except LoginError as e:
+            self.log.error(f"登录失败: {e}")
+            self.errmsg.append(f"登录失败: {e}")
+            self.is_login = False
+            return False
         except Exception as e:
-            self.log.exception("点赞任务异常")
-            self.errmsg.append(f"【{self.name}】 点赞任务异常,请检查日志")
+            self.log.error(f"登录异常: {e}")
+            self.errmsg.append(f"登录异常: {e}")
+            self.is_login = False
+            return False
 
-    async def sendDanmaku(self):
-        """
-        每日弹幕打卡
-        """
-        if not self.config['DANMAKU_CD']:
-            self.log.log("INFO", "弹幕任务关闭")
-            return
-        self.log.log("INFO", "弹幕打卡任务开始....(预计 {} 秒完成)".format(len(self.medalsNoLiving) * self.config['DANMAKU_CD'] * self.config['DANMAKU_NUM']))
-        n = 0
-        successnum = 0
-        for medal in self.medalsNoLiving:
-            n += 1
-            (await self.api.wearMedal(medal['medal']['medal_id'])) if self.config['WEARMEDAL'] else ...
-            try:
-                j = 0
-                for i in range(self.config['DANMAKU_NUM']):
-                    danmaku = await self.api.sendDanmaku(medal['room_info']['room_id'])
-                    j+=1
-                    successnum+=1
-                    self.log.log(
-                        "DEBUG",
-                        "{} 房间弹幕第({}/{})次打卡成功: {} ({}/{})".format(
-                            medal['anchor_info']['nick_name'], j, self.config['DANMAKU_NUM'], danmaku, n, len(self.medalsNoLiving)
-                        ),
-                    )
-                    await asyncio.sleep(self.config['DANMAKU_CD'])
-            except Exception as e:
-                self.log.log("ERROR", "{} 房间弹幕打卡失败: {}".format(medal['anchor_info']['nick_name'], e))
-                self.errmsg.append(f"【{self.name}】 {medal['anchor_info']['nick_name']} 房间弹幕打卡失败: {str(e)}")
-            finally:
-                await asyncio.sleep(self.config['DANMAKU_CD'])
+    async def get_medals(self, show_logs: bool = True):
+        """获取用户勋章"""
+        classified_medals = await self.medal_service.execute(show_logs)
 
-        if hasattr(self, 'initialMedal'):
-            (await self.api.wearMedal(self.initialMedal['medal_id'])) if self.config['WEARMEDAL'] else ...
-        self.log.log("SUCCESS", "弹幕打卡任务完成")
-        self.message.append(f"【{self.name}】 弹幕打卡任务完成 {int(successnum / self.config['DANMAKU_NUM'])}/{len(self.medalsNoLiving)}")
+        # 清空原有勋章列表
+        self._clear_medal_lists()
+
+        # 设置分类后的勋章
+        self.medalsNeedDo = classified_medals['need_do']
+        self.medalsOthers = classified_medals['others']
+        self.medalsLiving = classified_medals['living']
+        self.medalsNoLiving = classified_medals['no_living']
+
+        # 保持兼容性
+        self.medals = self.medalsNeedDo + self.medalsOthers
+
+    def _clear_medal_lists(self):
+        """清空勋章列表"""
+        for attr in ['medals', 'medalsNeedDo', 'medalsOthers', 'medalsLiving', 'medalsNoLiving']:
+            getattr(self, attr).clear()
 
     async def init(self):
-        if not await self.loginVerify():
-            self.log.log("ERROR", "登录失败 可能是 access_key 过期 , 请重新获取")
+        """初始化用户"""
+        if not await self.login_verify():
+            self.log.error("登录失败 可能是 access_key 过期 , 请重新获取")
             self.errmsg.append("登录失败 可能是 access_key 过期 , 请重新获取")
             await self.session.close()
-        else:
-            await self.getMedals()
 
     async def start(self):
-        if self.isLogin:
-            tasks = []
-            if self.medalsNeedDo:
-                self.log.log("INFO", f"共有 {len(self.medalsNeedDo)} 个牌子未满 1500 亲密度")
-                tasks.append(self.like_v3())
-                tasks.append(self.watchinglive())
-            else:
-                self.log.log("INFO", "所有牌子已满 1500 亲密度")
-            tasks.append(self.sendDanmaku())
-            tasks.append(self.signInGroups())
-            await asyncio.gather(*tasks)
+        """开始执行任务"""
+        if not self.is_login:
+            return
 
-    async def sendmsg(self):
-        if not self.isLogin:
+        # 获取勋章信息
+        await self.get_medals()
+
+        tasks = []
+
+        if self.medalsNeedDo:
+            self.log.info(f"共有 {len(self.medalsNeedDo)} 个牌子未满 1500 亲密度")
+            tasks.extend([
+                self.like_service.execute(self.medalsLiving, self.config),
+                self.heartbeat_service.execute(self.medalsNeedDo, self.config),
+            ])
+        else:
+            self.log.info("所有牌子已满 1500 亲密度")
+
+        tasks.extend([
+            self.danmaku_service.execute(self.medalsNoLiving, self.config),
+            self.group_service.execute(self.config),
+        ])
+
+        # 等待所有任务完成（维持原始程序逻辑）
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def send_msg(self):
+        """发送消息统计"""
+        if not self.is_login:
             await self.session.close()
             return self.message + self.errmsg
-        await self.getMedals()
-        nameList1, nameList2, nameList3, nameList4 = [], [], [], []
-        unlightList = []
-        for medal in self.medals:
-            today_feed = medal['medal']['today_feed']
-            nick_name = medal['anchor_info']['nick_name']
-            if not medal['medal']['is_lighted']:
-                unlightList.append(nick_name)
-            if medal['medal']['level'] >= 20:
-                continue
-            if today_feed >= 1500:
-                nameList1.append(nick_name)
-            elif 1200 <= today_feed < 1500:
-                nameList2.append(nick_name)
-            elif 300 <= today_feed < 1200:
-                nameList3.append(nick_name)
-            elif today_feed < 300:
-                nameList4.append(nick_name)
-        self.message.append(f"【{self.name}】 今日亲密度获取情况如下：")
 
-        for l, n in zip(
-            [nameList1, nameList2, nameList3, nameList4, unlightList],
-            ["【1500】", "【1200至1500】", "【300至1200】", "【300以下】", "【未点亮】"],
-        ):
-            if len(l) > 0:
-                self.message.append(f"{n}" + ' '.join(l[:5]) + f"{'等' if len(l) > 5 else ''}" + f' {len(l)}个')
+        # 重新获取勋章数据以确保统计的准确性（按照原始项目逻辑，不显示日志）
+        await self.get_medals(show_logs=False)
 
-        if hasattr(self, 'initialMedal'):
-            initialMedalInfo = await self.api.getMedalsInfoByUid(self.initialMedal['target_id'])
-            if initialMedalInfo['has_fans_medal']:
-                initialMedal = initialMedalInfo['my_fans_medal']
-                self.message.append(
-                    f"【当前佩戴】「{initialMedal['medal_name']}」({initialMedal['target_name']}) {initialMedal['level']} 级 "
-                )
-                if initialMedal['level'] < 20 and initialMedal['today_feed'] != 0:
-                    need = initialMedal['next_intimacy'] - initialMedal['intimacy']
-                    need_days = need // 1500 + 1
-                    end_date = datetime.now() + timedelta(days=need_days)
-                    self.message.append(f"今日已获取亲密度 {initialMedal['today_feed']} (B站结算有延迟，请耐心等待)")
-                    self.message.append(
-                        f"距离下一级还需 {need} 亲密度 预计需要 {need_days} 天 ({end_date.strftime('%Y-%m-%d')},以每日 1500 亲密度计算)"
-                    )
+        # 使用统计服务生成报告
+        initial_medal = getattr(self, 'initialMedal', None)
+        report_messages = await self.stats_service.execute(self.medals, initial_medal)
+        self.message.extend(report_messages)
+
         await self.session.close()
         return self.message + self.errmsg + ['---']
 
-    async def watchinglive(self):
-        if not self.config['WATCHINGLIVE']:
-            self.log.log("INFO", "每日观看直播任务关闭")
-            return
-        HEART_MAX = self.config['WATCHINGLIVE']
-        self.log.log("INFO", f"每日{HEART_MAX}分钟任务开始")
-        self.log.log("INFO", f"预计共需运行{HEART_MAX*len(self.medalsNeedDo)+5*self.config['WATCHINGALL']*len(self.medalsOthers)}分钟")
-        n = 0
-        for medal in self.medalsNeedDo:
-            n += 1
-            for heartNum in range(1, HEART_MAX+1):
-                tasks = []
-                tasks.append(self.api.heartbeat(medal['room_info']['room_id'], medal['medal']['target_id']))
-                await asyncio.gather(*tasks)
-                if heartNum%5==0:
-                    self.log.log(
-                        "INFO",
-                        f"{medal['anchor_info']['nick_name']} 第{heartNum}次心跳包已发送（{n}/{len(self.medalsNeedDo)}）",
-                    )
-                await asyncio.sleep(60)
-        self.log.log("SUCCESS", f"每日{HEART_MAX}分钟任务完成")
-        if not self.config['WATCHINGALL']:
-            self.log.log("INFO", "大于等于20级每日观看直播任务关闭")
-            return
-        n = 0
-        for medal in self.medalsOthers:
-            n += 1
-            for heartNum in range(5):
-                tasks = []
-                tasks.append(self.api.heartbeat(medal['room_info']['room_id'], medal['medal']['target_id']))
-                await asyncio.gather(*tasks)
-                await asyncio.sleep(60)
-            self.log.log("INFO",f"{medal['anchor_info']['nick_name']} 5次心跳包已发送（{n}/{len(self.medalsOthers)}）")
-        self.log.log("SUCCESS", f"大于等于20级每日观看任务完成")
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        return self
 
-    async def signInGroups(self):
-        if not self.config['SIGNINGROUP']:
-            self.log.log("INFO", "应援团签到任务关闭")
-            return
-        self.log.log("INFO", "应援团签到任务开始")
-        try:
-            n = 0
-            async for group in self.api.getGroups():
-                if group['owner_uid'] == self.mid:
-                    continue
-                try:
-                    await self.api.signInGroups(group['group_id'], group['owner_uid'])
-                except Exception as e:
-                    self.log.log("ERROR", group['group_name'] + " 签到失败")
-                    self.errmsg.append(f"应援团签到失败: {e}")
-                    continue
-                self.log.log("DEBUG", group['group_name'] + " 签到成功")
-                await asyncio.sleep(self.config['SIGNINGROUP'])
-                n += 1
-            if n:
-                self.log.log("SUCCESS", f"应援团签到任务完成 {n}/{n}")
-                self.message.append(f" 应援团签到任务完成 {n}/{n}")
-            else:
-                self.log.log("WARNING", "没有加入应援团")
-        except Exception as e:
-            self.log.exception(e)
-            self.log.log("ERROR", "应援团签到任务失败: " + str(e))
-            self.errmsg.append("应援团签到任务失败: " + str(e))
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器出口"""
+        await self.session.close()

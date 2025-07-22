@@ -2,10 +2,10 @@
   <img src="https://s1.ax1x.com/2022/05/24/XPx1tx.png" width="200" height="200" alt="">
 </p> -->
 <div align="center">
-<h1> 新 B 站粉丝牌助手
+<h1> B 站粉丝牌助手
 </h1>
 
-<p>当前版本：0.3.9-yokinanya</p>
+<p>当前版本：1.0.0</p>
 
 
  </div>
@@ -33,8 +33,7 @@
 
 ### 使用说明
 
-详细文档在这里 👉 [文档](https://xiaomiku01.github.io/fansMedalHelperVersion/)
-打不开的用这个镜像文档 👉 [镜像](https://doc.loveava.top/)
+正在重新编写文档，暂时可以查看原项目文档👉 [文档](https://xiaomiku01.github.io/fansMedalHelperVersion/)
 **请细心阅读**
 
 ---

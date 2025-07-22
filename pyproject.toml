@@ -1,0 +1,14 @@
+[project]
+name = "fansmedalhelper"
+version = "1.0.0"
+description = "B站粉丝牌助手"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "aiohttp>=3.12.13",
+    "aiohttp-socks>=0.10.1",
+    "apscheduler>=3.11.0",
+    "loguru>=0.7.3",
+    "onepush>=1.5.0",
+    "pyyaml>=6.0.2",
+]
