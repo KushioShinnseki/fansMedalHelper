@@ -9,6 +9,7 @@ import json
 from typing import Union
 from loguru import logger
 from urllib.parse import urlencode, urlparse
+from typing import AsyncGenerator
 
 
 from aiohttp import ClientSession
@@ -136,7 +137,7 @@ class BiliApi:
         async with self.session.post(*args, **kwargs) as resp:
             return self.__check_response(await resp.json())
 
-    async def getFansMedalandRoomID(self) -> dict:
+    async def getFansMedalandRoomID(self) -> AsyncGenerator[dict, None]:
         """
         获取用户粉丝勋章和直播间ID
         """

@@ -20,7 +20,7 @@ logger.add(
     level="INFO"
 )
 log = logger.bind(user="B站粉丝牌助手")
-__VERSION__ = "0.3.8"
+__VERSION__ = "0.3.9-yokinanya"
 
 warnings.filterwarnings(
     "ignore",
@@ -55,19 +55,21 @@ try:
     assert users["DANMAKU_CHECK_LEVEL"] in [0, 1], "DANMAKU_CHECK_LEVEL参数错误"
     assert users["WATCHINGLIVE"] >= 0, "WATCHINGLIVE参数错误"
     assert users["WEARMEDAL"] in [0, 1], "WEARMEDAL参数错误"
+    assert users.get("WATCHINGALL", 0) in [0, 1], "WATCHINGALL参数错误"
     config = {
         "ASYNC": users["ASYNC"],
         "LIKE_CD": users["LIKE_CD"],
         # "SHARE_CD": users['SHARE_CD'],
         "DANMAKU_CD": users["DANMAKU_CD"],
-        "DANMAKU_NUM": users["DANMAKU_NUM"],
         "DANMAKU_CHECK_LIGHT": users["DANMAKU_CHECK_LIGHT"],
         "DANMAKU_CHECK_LEVEL": users["DANMAKU_CHECK_LEVEL"],
+        "DANMAKU_NUM": users.get("DANMAKU_NUM", 10),
         "WATCHINGLIVE": users["WATCHINGLIVE"],
         "WEARMEDAL": users["WEARMEDAL"],
         "SIGNINGROUP": users.get("SIGNINGROUP", 2),
         "PROXY": users.get("PROXY"),
         "STOPWATCHINGTIME": None,
+        "WATCHINGALL": users.get("WATCHINGALL", 0),
     }
     stoptime = users.get("STOPWATCHINGTIME", None)
     if stoptime:
@@ -89,24 +91,7 @@ except Exception as e:
 async def main():
     messageList = []
     session = aiohttp.ClientSession(trust_env=True)
-    try:
-        log.warning("当前版本为: " + __VERSION__)
-        resp = await (
-            await session.get(
-                "http://version.fansmedalhelper.1961584514352337.cn-hangzhou.fc.devsapp.net/"
-            )
-        ).json()
-        if resp["version"] != __VERSION__:
-            log.warning("新版本为: " + resp["version"] + ",请更新")
-            log.warning("更新内容: " + resp["changelog"])
-            messageList.append(f"当前版本: {__VERSION__} ,最新版本: {resp['version']}")
-            messageList.append(f"更新内容: {resp['changelog']} ")
-        if resp["notice"]:
-            log.warning("公告: " + resp["notice"])
-            messageList.append(f"公告: {resp['notice']}")
-    except Exception as ex:
-        messageList.append(f"检查版本失败，{ex}")
-        log.warning(f"检查版本失败，{ex}")
+    log.warning("当前版本为: " + __VERSION__)
     initTasks = []
     startTasks = []
     catchMsg = []
@@ -141,7 +126,7 @@ async def main():
 
         notifier = users["MOREPUSH"]["notifier"]
         params = users["MOREPUSH"]["params"]
-        await notify(
+        notify(
             notifier,
             title=f"【B站粉丝牌助手推送】",
             content="  \n".join(messageList),
