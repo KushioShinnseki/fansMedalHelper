@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://avatars.githubusercontent.com/u/37007707?s=400&u=1c91c2df43ba5534effcb44bfc5f153f9e7ccf72&v=4" width="200" height="200" alt="">
+  <img src="https://avatars.githubusercontent.com/u/82191856?s=400&u=2da2c0d81b6750f211d575e91143df767743e4c7&v=4" width="200" height="200" alt="">
 </p>
 <div align="center">
 <h1> B 站粉丝牌助手仓库
