@@ -142,7 +142,7 @@ class MedalService(BaseService):
                     classified['no_living'].append(medal)
 
             # 任务分类
-            if level < 20 and today_feed < 1500:
+            if level < 120 and today_feed < 30:
                 classified['need_do'].append(medal)
             else:
                 classified['others'].append(medal)
