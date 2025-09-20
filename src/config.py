@@ -22,7 +22,6 @@ class Config:
         "WEARMEDAL": 1,
         "SIGNINGROUP": 2,
         "PROXY": "",
-        "WATCHINGALL": 0,
     }
 
     def __init__(self):
@@ -66,8 +65,6 @@ class Config:
              lambda x: x >= 0, "WATCHINGLIVE参数错误，必须>=0"),
             ("WEARMEDAL", users.get("WEARMEDAL"),
              [0, 1], "WEARMEDAL参数错误，必须为0或1"),
-            ("WATCHINGALL", users.get("WATCHINGALL", 0),
-             [0, 1], "WATCHINGALL参数错误，必须为0或1"),
         ]
 
         for param_name, param_value, validation, error_msg in validations:
