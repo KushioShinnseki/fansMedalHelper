@@ -1,16 +1,15 @@
 import asyncio
 import json
 import random
-import time
-from typing import AsyncGenerator, TYPE_CHECKING
+from typing import TYPE_CHECKING, AsyncGenerator
 from urllib.parse import urlparse
+
 from aiohttp import ClientSession
 
 from .constants import BiliConstants
-from .exceptions import BiliApiError, NetworkError, RateLimitError
-from .utils import SignableDict, get_timestamp, random_string, Crypto, client_sign
-from .models import MedalWithRoom, UserInfo, Group
+from .exceptions import BiliApiError
 from .logger_manager import LogManager
+from .utils import SignableDict, client_sign, get_timestamp, random_string
 
 if TYPE_CHECKING:
     from .user import BiliUser
@@ -23,13 +22,13 @@ def retry(tries: int = 3, interval: int = 1):
             count = 0
             func.isRetryable = False
             log = LogManager.get_logger(f"{args[0].u.name}")
-            
+
             while True:
                 try:
                     result = await func(*args, **kwargs)
                 except Exception as e:
                     count += 1
-                    
+
                     if isinstance(e, BiliApiError):
                         if e.code == BiliConstants.ErrorCodes.TOKEN_ERROR:
                             raise e
@@ -39,24 +38,25 @@ def retry(tries: int = 3, interval: int = 1):
                             pass
                         else:
                             raise e
-                    
+
                     if count > tries:
-                        log.error(f"API {urlparse(args[1]).path} 调用出现异常: {str(e)}")
+                        log.error(
+                            f"API {urlparse(args[1]).path} 调用出现异常: {str(e)}")
                         raise e
                     else:
                         await asyncio.sleep(interval)
-                    
+
                     func.isRetryable = True
                 else:
                     return result
-        
+
         return wrapper
     return decorate
 
 
 class BiliApi:
     """B站API接口类"""
-    
+
     def __init__(self, user: 'BiliUser', session: ClientSession):
         self.u = user
         self.session = session
@@ -92,22 +92,22 @@ class BiliApi:
             "page_size": BiliConstants.Tasks.DEFAULT_PAGE_SIZE,
         }
         first_flag = True
-        
+
         while True:
             data = await self._get(url, params=SignableDict(params).signed, headers=self.headers)
-            
+
             if first_flag and data.get("special_list"):
                 for item in data["special_list"]:
                     yield item
                 self.u.wearedMedal = data["special_list"][0]
                 first_flag = False
-            
+
             for item in data.get("list", []):
                 yield item
-            
+
             if not data.get("list"):
                 break
-                
+
             params["page"] += 1
 
     async def likeInteract(self, room_id: int):
@@ -120,7 +120,8 @@ class BiliApi:
             "click_time": 1,
             "roomid": room_id,
         }
-        self.headers.update({"Content-Type": "application/x-www-form-urlencoded"})
+        self.headers.update(
+            {"Content-Type": "application/x-www-form-urlencoded"})
         await self._post(url, data=SignableDict(data).signed, headers=self.headers)
 
     async def likeInteractV3(self, room_id: int, up_id: int, self_uid: int):
@@ -135,7 +136,8 @@ class BiliApi:
             "anchor_id": up_id,
             "uid": up_id,
         }
-        self.headers.update({"Content-Type": "application/x-www-form-urlencoded"})
+        self.headers.update(
+            {"Content-Type": "application/x-www-form-urlencoded"})
         await self._post(url, data=SignableDict(data).signed, headers=self.headers)
 
     async def shareRoom(self, room_id: int):
@@ -143,13 +145,14 @@ class BiliApi:
         url = BiliConstants.URLs.SHARE_ROOM
         data = {
             "access_key": self.u.access_key,
-            "actionKey": "appkey", 
+            "actionKey": "appkey",
             "appkey": BiliConstants.APPKEY,
             "ts": get_timestamp(),
             "interact_type": 3,
             "roomid": room_id,
         }
-        self.headers.update({"Content-Type": "application/x-www-form-urlencoded"})
+        self.headers.update(
+            {"Content-Type": "application/x-www-form-urlencoded"})
         await self._post(url, data=SignableDict(data).signed, headers=self.headers)
 
     async def sendDanmaku(self, room_id: int) -> str:
@@ -168,28 +171,31 @@ class BiliApi:
             "color": "16777215",
             "fontsize": "25",
         }
-        self.headers.update({"Content-Type": "application/x-www-form-urlencoded"})
-        
+        self.headers.update(
+            {"Content-Type": "application/x-www-form-urlencoded"})
+
         try:
             resp = await self.session.post(
-                url, params=SignableDict(params).signed, data=data, headers=self.headers
+                url, params=SignableDict(
+                    params).signed, data=data, headers=self.headers
             )
             resp = await resp.json()
-            
+
             # 检查响应格式
             if resp.get("code") != 0:
                 # 尝试处理错误响应
                 if resp.get("mode_info") and resp["mode_info"].get("extra"):
                     return json.loads(resp["mode_info"]["extra"])["content"]
                 else:
-                    raise BiliApiError(resp.get("code", -1), resp.get("message", "未知错误"))
-            
+                    raise BiliApiError(resp.get("code", -1),
+                                       resp.get("message", "未知错误"))
+
             # 成功响应处理
             if resp.get("mode_info") and resp["mode_info"].get("extra"):
                 return json.loads(resp["mode_info"]["extra"])["content"]
             else:
                 return "弹幕发送成功"
-                
+
         except BiliApiError as e:
             if "已经发送过" in str(e):
                 return "重复弹幕"
@@ -199,12 +205,13 @@ class BiliApi:
                     await asyncio.sleep(self.u.config.get("DANMAKU_CD", 3))
                     params.update({"ts": get_timestamp()})
                     data.update({"msg": "111"})
-                    
+
                     resp = await self.session.post(
-                        url, params=SignableDict(params).signed, data=data, headers=self.headers
+                        url, params=SignableDict(
+                            params).signed, data=data, headers=self.headers
                     )
                     resp = await resp.json()
-                    
+
                     if resp.get("mode_info") and resp["mode_info"].get("extra"):
                         return json.loads(resp["mode_info"]["extra"])["content"]
                     else:
@@ -232,7 +239,7 @@ class BiliApi:
         url = BiliConstants.URLs.USER_INFO
         params = {
             "access_key": self.u.access_key,
-            "actionKey": "appkey", 
+            "actionKey": "appkey",
             "appkey": BiliConstants.APPKEY,
             "ts": get_timestamp(),
         }
@@ -280,7 +287,7 @@ class BiliApi:
             "player_type": "0",
             "client_ts": f"{get_timestamp()}",
         }
-        
+
         # 添加client_sign
         data.update({
             "client_sign": client_sign(data),
@@ -289,9 +296,10 @@ class BiliApi:
             "appkey": BiliConstants.APPKEY,
             "ts": get_timestamp(),
         })
-        
+
         url = BiliConstants.URLs.HEARTBEAT
-        self.headers.update({"Content-Type": "application/x-www-form-urlencoded"})
+        self.headers.update(
+            {"Content-Type": "application/x-www-form-urlencoded"})
         return await self._post(url, data=SignableDict(data).signed, headers=self.headers)
 
     async def wearMedal(self, medal_id: int):

@@ -3,18 +3,17 @@
 """
 import asyncio
 import uuid
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from typing import Any, Dict, List
+
 from aiohttp import ClientSession, ClientTimeout
 
 from .api import BiliApi
-from .services import AuthService, MedalService, LikeService, DanmakuService, HeartbeatService, GroupService
-from .stats_service import StatsService
-from .models import MedalWithRoom, UserInfo
 from .constants import BiliConstants
-from .exceptions import LoginError, BiliException
+from .exceptions import LoginError
 from .logger_manager import LogManager
-from .utils import safe_get
+from .services import (AuthService, DanmakuService, GroupService,
+                       HeartbeatService, LikeService, MedalService)
+from .stats_service import StatsService
 
 
 class BiliUser:

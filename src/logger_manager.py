@@ -2,15 +2,16 @@
 日志管理模块
 """
 import sys
-from loguru import logger
 from typing import Optional
+
+from loguru import logger
 
 
 class LogManager:
     """日志管理器"""
-    
+
     _initialized = False
-    
+
     @classmethod
     def setup_logger(cls, user: Optional[str] = None):
         """设置日志"""
@@ -24,12 +25,12 @@ class LogManager:
                 diagnose=True,
             )
             cls._initialized = True
-    
+
     @staticmethod
     def get_logger(user: str):
         """获取用户专用logger"""
         return logger.bind(user=user)
-    
+
     @staticmethod
     def get_system_logger():
         """获取系统logger"""

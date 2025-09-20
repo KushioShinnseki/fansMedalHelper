@@ -1,20 +1,18 @@
-from .user import BiliUser
 from .api import BiliApi
 from .config import Config
 from .constants import BiliConstants
-from .exceptions import BiliException, BiliApiError, LoginError, ConfigError
+from .exceptions import BiliApiError, BiliException, ConfigError, LoginError
 from .logger_manager import LogManager
-from .models import Medal, MedalWithRoom, UserInfo, Group, RoomInfo, AnchorInfo
-from .services import (
-    BaseService, AuthService, MedalService, LikeService, 
-    DanmakuService, HeartbeatService, GroupService
-)
+from .models import AnchorInfo, Group, Medal, MedalWithRoom, RoomInfo, UserInfo
+from .services import (AuthService, BaseService, DanmakuService, GroupService,
+                       HeartbeatService, LikeService, MedalService)
 from .stats_service import StatsService
+from .user import BiliUser
 from .utils import Crypto, SignableDict, client_sign, random_string, safe_get
 
 __all__ = [
     'BiliUser',
-    'BiliApi', 
+    'BiliApi',
     'Config',
     'BiliConstants',
     'BiliException',
@@ -23,7 +21,7 @@ __all__ = [
     'ConfigError',
     'LogManager',
     'Medal',
-    'MedalWithRoom', 
+    'MedalWithRoom',
     'UserInfo',
     'Group',
     'RoomInfo',
