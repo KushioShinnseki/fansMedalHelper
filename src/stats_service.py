@@ -17,8 +17,8 @@ class StatsService(BaseService):
     def calculate_medal_stats(self, medals: List[Dict[str, Any]]) -> Dict[str, List[str]]:
         """计算勋章统计"""
         stats = {
-            'full': [],      # 1500
-            'high': [],      # 1200-1500
+            'full': [],      # 30
+            'high': [],      # 1200-30
             'medium': [],    # 300-1200
             'low': [],       # <300
             'unlit': []      # 未点亮
@@ -34,9 +34,9 @@ class StatsService(BaseService):
             if not is_lighted:
                 stats['unlit'].append(nick_name)
 
-            if today_feed >= 1500:
+            if today_feed >= 30:
                 stats['full'].append(nick_name)
-            elif 1200 <= today_feed < 1500:
+            elif 1200 <= today_feed < 30:
                 stats['high'].append(nick_name)
             elif 300 <= today_feed < 1200:
                 stats['medium'].append(nick_name)
@@ -50,8 +50,8 @@ class StatsService(BaseService):
         messages = [f"【{self.user_name}】 今日亲密度获取情况如下："]
 
         labels = {
-            'full': '【1500】',
-            'high': '【1200至1500】',
+            'full': '【30】',
+            'high': '【1200至30】',
             'medium': '【300至1200】',
             'low': '【300以下】',
             'unlit': '【未点亮】'

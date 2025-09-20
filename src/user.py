@@ -151,13 +151,13 @@ class BiliUser:
         tasks = []
 
         if self.medalsNeedDo:
-            self.log.info(f"共有 {len(self.medalsNeedDo)} 个牌子未满 1500 亲密度")
+            self.log.info(f"共有 {len(self.medalsNeedDo)} 个牌子未满 30 亲密度")
             tasks.extend([
                 self.like_service.execute(self.medalsLiving, self.config),
                 self.heartbeat_service.execute(self.medalsNeedDo, self.config),
             ])
         else:
-            self.log.info("所有牌子已满 1500 亲密度")
+            self.log.info("所有牌子已满 30 亲密度")
 
         tasks.extend([
             self.danmaku_service.execute(self.medalsNoLiving, self.config),
