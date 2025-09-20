@@ -18,15 +18,12 @@ class StatsService(BaseService):
         """计算勋章统计"""
         stats = {
             'full': [],      # 30
-            'high': [],      # 1200-30
-            'medium': [],    # 300-1200
-            'low': [],       # <300
+            'low': [],       # <30
             'unlit': []      # 未点亮
         }
 
         for medal in medals:
             today_feed = safe_get(medal, 'medal', 'today_feed', default=0)
-            level = safe_get(medal, 'medal', 'level', default=0)
             nick_name = safe_get(medal, 'anchor_info',
                                  'nick_name', default='未知用户')
             is_lighted = safe_get(medal, 'medal', 'is_lighted', default=1)
@@ -36,11 +33,7 @@ class StatsService(BaseService):
 
             if today_feed >= 30:
                 stats['full'].append(nick_name)
-            elif 1200 <= today_feed < 30:
-                stats['high'].append(nick_name)
-            elif 300 <= today_feed < 1200:
-                stats['medium'].append(nick_name)
-            elif today_feed < 300:
+            elif today_feed < 30:
                 stats['low'].append(nick_name)
 
         return stats
@@ -51,9 +44,7 @@ class StatsService(BaseService):
 
         labels = {
             'full': '【30】',
-            'high': '【1200至30】',
-            'medium': '【300至1200】',
-            'low': '【300以下】',
+            'low': '【30以下】',
             'unlit': '【未点亮】'
         }
 
