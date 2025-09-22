@@ -3,17 +3,17 @@ B站粉丝牌助手主程序 - 重构版
 """
 import asyncio
 import itertools
-import warnings
-import signal
-from typing import List
 import os
+import signal
 import sys
+import warnings
+from typing import List
 
 import aiohttp
 
 from src import BiliUser, Config, LogManager
 
-__VERSION__ = "1.0.0"
+__VERSION__ = "1.0.1"
 
 # 忽略时区警告
 warnings.filterwarnings(
@@ -299,8 +299,6 @@ async def main():
 
 def run_with_scheduler():
     """使用定时器运行"""
-    helper = FansMedalHelper()
-
     try:
         config = Config()
         notification_config = config.get_notification_config()
@@ -327,9 +325,10 @@ def run_with_scheduler():
                 scheduler.shutdown(wait=True)
 
         elif "--auto" in sys.argv:
+            import datetime
+
             from apscheduler.schedulers.blocking import BlockingScheduler
             from apscheduler.triggers.interval import IntervalTrigger
-            import datetime
 
             log.info("使用自动守护模式，每隔 24 小时运行一次")
             scheduler = BlockingScheduler(timezone="Asia/Shanghai")

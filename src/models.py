@@ -2,7 +2,7 @@
 数据模型模块
 """
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -17,7 +17,7 @@ class Medal:
     intimacy: int
     next_intimacy: int
     is_lighted: bool
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Medal':
         """从字典创建勋章对象"""
@@ -35,12 +35,12 @@ class Medal:
         )
 
 
-@dataclass 
+@dataclass
 class RoomInfo:
     """直播间信息数据模型"""
     room_id: int
     living_status: int
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'RoomInfo':
         """从字典创建直播间信息对象"""
@@ -56,7 +56,7 @@ class AnchorInfo:
     """主播信息数据模型"""
     uid: int
     nick_name: str
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AnchorInfo':
         """从字典创建主播信息对象"""
@@ -73,7 +73,7 @@ class MedalWithRoom:
     medal: Medal
     room_info: RoomInfo
     anchor_info: AnchorInfo
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'MedalWithRoom':
         """从字典创建勋章和直播间对象"""
@@ -99,7 +99,7 @@ class Group:
     group_id: int
     group_name: str
     owner_uid: int
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Group':
         """从字典创建应援团对象"""
