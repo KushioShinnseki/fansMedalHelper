@@ -2,10 +2,10 @@
 工具函数模块
 """
 import hashlib
+import json
 import random
 import time
-import json
-from typing import Union, Dict, Any
+from typing import Any, Dict, Union
 from urllib.parse import urlencode
 
 from .constants import BiliConstants
@@ -13,14 +13,14 @@ from .constants import BiliConstants
 
 class Crypto:
     """加密工具类"""
-    
+
     @staticmethod
     def md5(data: Union[str, bytes]) -> str:
         """生成MD5哈希"""
         if isinstance(data, str):
             return hashlib.md5(data.encode()).hexdigest()
         return hashlib.md5(data).hexdigest()
-    
+
     @staticmethod
     def sign(data: Union[str, dict]) -> str:
         """生成签名"""
@@ -35,12 +35,12 @@ class Crypto:
 
 class SignableDict(dict):
     """可签名的字典类"""
-    
+
     @property
     def sorted(self):
         """返回按字母排序的字典"""
         return dict(sorted(self.items()))
-    
+
     @property
     def signed(self):
         """返回带签名的排序字典"""

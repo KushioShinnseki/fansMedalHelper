@@ -6,19 +6,19 @@ from typing import Optional
 
 class BiliException(Exception):
     """B站API异常基类"""
-    
+
     def __init__(self, message: str, code: Optional[int] = None):
         self.message = message
         self.code = code
         super().__init__(self.message)
-    
+
     def __str__(self):
         return self.message
 
 
 class BiliApiError(BiliException):
     """B站API错误"""
-    
+
     def __init__(self, code: int, message: str):
         super().__init__(message, code)
 
