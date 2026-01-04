@@ -3,17 +3,18 @@ B站粉丝牌助手主程序 - 重构版
 """
 import asyncio
 import itertools
-import warnings
-import signal
-from typing import List
 import os
+import signal
 import sys
+import threading
+import warnings
+from typing import List
 
 import aiohttp
 
 from src import BiliUser, Config, LogManager
 
-__VERSION__ = "1.0.0"
+__VERSION__ = "1.0.1"
 
 # 忽略时区警告
 warnings.filterwarnings(
@@ -78,6 +79,11 @@ class FansMedalHelper:
 
     def setup_signal_handlers(self):
         """设置信号处理器"""
+        # 核心修复：只在主线程中设置信号处理器
+        if threading.current_thread() is not threading.main_thread():
+            self.log.info("非主线程，跳过信号处理器设置。")
+            return
+
         if sys.platform != "win32":
             # Unix/Linux 系统信号处理
             signal.signal(signal.SIGINT, self._signal_handler)
@@ -118,7 +124,7 @@ class FansMedalHelper:
                 user_config["access_key"],
                 user_config.get("white_uid", ""),
                 user_config.get("banned_uid", ""),
-                self.config.config,
+                self._merge_user_config(user_config),
             )
 
             users.append(bili_user)
@@ -137,6 +143,21 @@ class FansMedalHelper:
                 raise
 
         return users
+
+    def _merge_user_config(self, user_config: dict) -> dict:
+        """合并用户配置和全局配置"""
+        merged_config = self.config.config.copy()
+
+        # 用户级别配置项（会覆盖全局配置）
+        user_specific_keys = [
+            'coin_remain', 'coin_uid', 'coin_max', 'coin_max_per_uid'
+        ]
+
+        for key in user_specific_keys:
+            if key in user_config:
+                merged_config[key] = user_config[key]
+
+        return merged_config
 
     async def execute_tasks(self, users: List[BiliUser]) -> List[str]:
         """执行所有用户的任务"""
@@ -299,8 +320,6 @@ async def main():
 
 def run_with_scheduler():
     """使用定时器运行"""
-    helper = FansMedalHelper()
-
     try:
         config = Config()
         notification_config = config.get_notification_config()
@@ -327,9 +346,10 @@ def run_with_scheduler():
                 scheduler.shutdown(wait=True)
 
         elif "--auto" in sys.argv:
+            import datetime
+
             from apscheduler.schedulers.blocking import BlockingScheduler
             from apscheduler.triggers.interval import IntervalTrigger
-            import datetime
 
             log.info("使用自动守护模式，每隔 24 小时运行一次")
             scheduler = BlockingScheduler(timezone="Asia/Shanghai")

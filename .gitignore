@@ -14,3 +14,5 @@ venv/
 *.swp
 .python-version
 .vscode
+uv.lock
+copilot-instructions.md
