@@ -1,7 +1,10 @@
 import asyncio
+import hashlib
 import json
 import random
-from typing import TYPE_CHECKING, AsyncGenerator
+import string
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from aiohttp import ClientSession
@@ -80,7 +83,7 @@ class BiliApi:
         async with self.session.post(*args, **kwargs) as resp:
             return self._check_response(await resp.json())
 
-    async def getFansMedalandRoomID(self) -> AsyncGenerator[dict, None]:
+    async def getFansMedalandRoomID(self) -> AsyncGenerator[dict]:
         """获取用户粉丝勋章和直播间ID"""
         url = BiliConstants.URLs.FANS_MEDAL_PANEL
         params = {
@@ -124,21 +127,48 @@ class BiliApi:
             {"Content-Type": "application/x-www-form-urlencoded"})
         await self._post(url, data=SignableDict(data).signed, headers=self.headers)
 
-    async def likeInteractV3(self, room_id: int, up_id: int, self_uid: int):
+    def _sign_like_payload(self, data: dict) -> dict:
+        """点赞接口按外部实现使用未 urlencode 的参数串签名。"""
+        sorted_data = dict(sorted(data.items()))
+        query = "&".join(f"{key}={value}" for key, value in sorted_data.items())
+        sign = hashlib.md5(f"{query}{BiliConstants.APPSECRET}".encode()).hexdigest()
+        return {**sorted_data, "sign": sign}
+
+    def _like_headers(self) -> dict:
+        buvid = "".join(
+            random.choices(string.ascii_uppercase + string.digits, k=37)
+        )
+        return {
+            **self.headers,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Buvid": buvid,
+            "env": "prod",
+        }
+
+    async def likeInteractV3(
+        self,
+        room_id: int,
+        up_id: int,
+        self_uid: int,
+        *,
+        click_time: int = 1,
+    ):
         """点赞直播间V3"""
         url = BiliConstants.URLs.LIKE_INTERACT_V3
         data = {
             "access_key": self.u.access_key,
             "actionKey": "appkey",
             "appkey": BiliConstants.APPKEY,
-            "click_time": 1,
+            "click_time": click_time,
             "room_id": room_id,
             "anchor_id": up_id,
-            "uid": up_id,
+            "uid": self_uid,
         }
-        self.headers.update(
-            {"Content-Type": "application/x-www-form-urlencoded"})
-        await self._post(url, data=SignableDict(data).signed, headers=self.headers)
+        await self._post(
+            url,
+            data=self._sign_like_payload(data),
+            headers=self._like_headers(),
+        )
 
     async def shareRoom(self, room_id: int):
         """分享直播间"""
@@ -164,9 +194,10 @@ class BiliApi:
             "appkey": BiliConstants.APPKEY,
             "ts": get_timestamp(),
         }
+        message = random.choice(BiliConstants.DANMAKU_LIST)
         data = {
             "cid": room_id,
-            "msg": random.choice(BiliConstants.DANMAKU_LIST),
+            "msg": message,
             "rnd": get_timestamp(),
             "color": "16777215",
             "fontsize": "25",
@@ -194,17 +225,18 @@ class BiliApi:
             if resp.get("mode_info") and resp["mode_info"].get("extra"):
                 return json.loads(resp["mode_info"]["extra"])["content"]
             else:
-                return "弹幕发送成功"
+                return f"弹幕发送成功: {message}"
 
         except BiliApiError as e:
             if "已经发送过" in str(e):
-                return "重复弹幕"
+                return "今日已发送过弹幕"
             elif e.code == 0:  # 特殊情况，code为0但有错误信息时重试
                 # 重试发送简单弹幕
                 try:
                     await asyncio.sleep(self.u.config.get("DANMAKU_CD", 3))
                     params.update({"ts": get_timestamp()})
-                    data.update({"msg": "111"})
+                    retry_message = "111"
+                    data.update({"msg": retry_message})
 
                     resp = await self.session.post(
                         url, params=SignableDict(
@@ -215,9 +247,9 @@ class BiliApi:
                     if resp.get("mode_info") and resp["mode_info"].get("extra"):
                         return json.loads(resp["mode_info"]["extra"])["content"]
                     else:
-                        return "弹幕发送成功"
-                except:
-                    raise e
+                        return f"弹幕发送成功: {retry_message}"
+                except Exception as retry_error:
+                    raise e from retry_error
             else:
                 raise e
         except Exception as e:
@@ -247,12 +279,40 @@ class BiliApi:
 
     async def getMedalsInfoByUid(self, uid: int):
         """根据UID获取勋章信息"""
-        url = BiliConstants.URLs.MEDALS_INFO
+        async for medal in self.getMyMedals():
+            if int(medal.get("target_id", 0)) == int(uid):
+                return {
+                    "has_fans_medal": True,
+                    "my_fans_medal": medal,
+                }
+
+        return {
+            "has_fans_medal": False,
+            "my_fans_medal": None,
+        }
+
+    async def getMyMedals(self) -> AsyncGenerator[dict]:
+        """获取自己持有的粉丝勋章"""
+        page = 1
+        total_page = 1
+
+        while page <= total_page:
+            data = await self._get_my_medals_page(page)
+            for medal in data.get("items", []):
+                yield medal
+
+            page_info = data.get("page_info", {})
+            total_page = max(1, int(page_info.get("total_page", page)))
+            page += 1
+
+    async def _get_my_medals_page(self, page: int) -> dict:
+        url = BiliConstants.URLs.MY_MEDALS
         params = {
-            "target_id": uid,
             "access_key": self.u.access_key,
             "actionKey": "appkey",
             "appkey": BiliConstants.APPKEY,
+            "page": page,
+            "page_size": BiliConstants.Tasks.MY_MEDALS_PAGE_SIZE,
             "ts": get_timestamp(),
         }
         return await self._get(url, params=SignableDict(params).signed, headers=self.headers)
@@ -348,107 +408,3 @@ class BiliApi:
             "ts": get_timestamp(),
         }
         return await self._post(url, data=SignableDict(params).signed, headers=self.headers)
-
-    async def getVideoCoinsStatus(self, aid: int = None, bvid: str = None):
-        """判断视频是否被投币
-
-        Args:
-            aid: 稿件 avid (与bvid二选一)
-            bvid: 稿件 bvid (与avid二选一)
-        Return:
-            dict: 包含是否已投币等信息的字典
-            {
-                "code": 0,
-                "message": "0",
-                "ttl": 1,
-                "data": {
-                    "multiply": 0
-                }
-            }
-            multiply: 已投币数量 (0, 1, 2)
-        """
-        url = BiliConstants.URLs.VIDEO_COINS_STATUS
-        params = {
-            "access_key": self.u.access_key,
-            "actionKey": "appkey",
-            "appkey": BiliConstants.APPKEY,
-            "ts": get_timestamp(),
-        }
-
-        # 根据文档，aid 与 bvid 任选一个
-        if aid is not None:
-            params["aid"] = aid
-        elif bvid is not None:
-            params["bvid"] = bvid
-        else:
-            raise ValueError("aid 与 bvid 必须提供其中一个")
-
-        return await self._get(url, params=params, headers=self.headers)
-
-    async def coinVideo(self, aid: int, multiply: int = 1, select_like: int = 0):
-        """投币视频
-
-        Args:
-            aid: 稿件 avid
-            multiply: 投币数量 (上限为2)
-            select_like: 是否附加点赞 (0: 不点赞, 1: 同时点赞)
-        """
-        url = BiliConstants.URLs.COIN_VIDEO
-        data = {
-            "access_key": self.u.access_key,
-            "aid": aid,
-            "multiply": multiply,
-            "select_like": select_like,
-            "actionKey": "appkey",
-            "appkey": BiliConstants.APPKEY,
-            "ts": get_timestamp(),
-        }
-
-        self.headers.update(
-            {"Content-Type": "application/x-www-form-urlencoded"})
-        return await self._post(url, data=data, headers=self.headers)
-
-    async def getUserVideoUploaded(self, vmid: int, aid: int = None, order: str = "pubdate", ps: int = 20):
-        """查询用户投稿明细 (APP端)
-
-        Args:
-            vmid: 目标用户mid (必要)
-            aid: 请求返回起始视频，填写上次请求返回最后视频的aid (首次请求不需要)
-            order: 排序方式 (非必要) click代表最多播放，pubdate代表最新发布，默认为pubdate
-            ps: 每页条数 (非必要) 默认为20
-
-        Returns:
-            dict: 包含视频列表和分页信息的字典
-        """
-        url = BiliConstants.URLs.USER_VIDEOS
-        params = {
-            "vmid": vmid,
-            "order": order,
-            "ps": ps,
-            "access_key": self.u.access_key,
-            "actionKey": "appkey",
-            "appkey": BiliConstants.APPKEY,
-            "build": BiliConstants.APPBUILD,
-            "ts": get_timestamp(),
-        }
-
-        # 如果指定了aid，添加到参数中
-        if aid is not None:
-            params["aid"] = aid
-
-        return await self._get(url, params=SignableDict(params).signed, headers=self.headers)
-
-    async def getMyInfo(self):
-        """获取登录用户信息（APP端）
-
-        Returns:
-            dict: 包含用户详细信息的字典
-        """
-        url = BiliConstants.URLs.MY_INFO
-        params = {
-            "access_key": self.u.access_key,
-            "actionKey": "appkey", 
-            "appkey": BiliConstants.APPKEY,
-            "ts": get_timestamp(),
-        }
-        return await self._get(url, params=SignableDict(params).signed, headers=self.headers)

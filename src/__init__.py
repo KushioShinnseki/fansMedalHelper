@@ -1,10 +1,11 @@
 from .api import BiliApi
 from .config import Config
 from .constants import BiliConstants
+from .danmaku_state import DanmakuStateStore
 from .exceptions import BiliApiError, BiliException, ConfigError, LoginError
 from .logger_manager import LogManager
 from .models import AnchorInfo, Group, Medal, MedalWithRoom, RoomInfo, UserInfo
-from .services import (AuthService, BaseService, CoinService, DanmakuService, GroupService,
+from .services import (AuthService, BaseService, DanmakuService, GroupService,
                        HeartbeatService, LikeService, MedalService)
 from .stats_service import StatsService
 from .user import BiliUser
@@ -15,6 +16,7 @@ __all__ = [
     'BiliApi',
     'Config',
     'BiliConstants',
+    'DanmakuStateStore',
     'BiliException',
     'BiliApiError',
     'LoginError',
@@ -32,7 +34,6 @@ __all__ = [
     'LikeService',
     'DanmakuService',
     'HeartbeatService',
-    'CoinService',
     'GroupService',
     'StatsService',
     'Crypto',
