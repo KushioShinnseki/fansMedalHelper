@@ -118,15 +118,11 @@ class MedalService(BaseService):
 
             classified['all'].append(medal)
 
-            if room_status == 1:
-                classified['living'].append(medal)
-
-            if room_status != 1 and (danmaku_all_offline or medal_lighted == 0):
-                classified['no_living'].append(medal)
-
-            day_limit = medal_data.get('day_limit', 0)
-            if day_limit == 0 or today_feed < day_limit:
-                classified['need_watch'].append(medal)
+            # 任务分类
+            if level < 120 and today_feed < 30:
+                classified['need_do'].append(medal)
+            else:
+                classified['others'].append(medal)
 
         return classified
 
