@@ -3,7 +3,7 @@
 """
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 import yaml
 
@@ -15,17 +15,14 @@ class Config:
 
     DEFAULT_CONFIG = {
         "ASYNC": 1,
-        "LIKE_CD": 1,
+        "LIKE_CD": 5,
         "DANMAKU_CD": 3,
         "DANMAKU_NUM": 10,
-        "WATCHINGLIVE": 45,
+        "DANMAKU_ALL_OFFLINE": 0,
+        "WATCHINGLIVE": 0,
         "WEARMEDAL": 1,
-        "SIGNINGROUP": 2,
+        "SIGNINGROUP": 0,
         "PROXY": "",
-        "coin_remain": 0,
-        "coin_uid": 0,
-        "coin_max": 0,
-        "coin_max_per_uid": 10,
     }
 
     def __init__(self):
@@ -33,13 +30,13 @@ class Config:
         self.config = self._load_config()
         self.users_config = self._extract_users_config()
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         """加载配置"""
         try:
             if os.environ.get("USERS"):
                 users = json.loads(os.environ.get("USERS"))
             else:
-                with open("users.yaml", "r", encoding="utf-8") as f:
+                with open("users.yaml", encoding="utf-8") as f:
                     users = yaml.load(f, Loader=yaml.FullLoader)
 
             self._raw_config = users
@@ -55,7 +52,7 @@ class Config:
         except Exception as e:
             raise ConfigError(f"读取配置文件失败: {e}")
 
-    def _validate_config(self, users: Dict[str, Any]) -> None:
+    def _validate_config(self, users: dict[str, Any]) -> None:
         """验证配置参数"""
         validations = [
             ("ASYNC", users.get("ASYNC"), [0, 1], "ASYNC参数错误，必须为0或1"),
@@ -65,10 +62,14 @@ class Config:
              lambda x: x >= 0, "DANMAKU_CD参数错误，必须>=0"),
             ("DANMAKU_NUM", users.get("DANMAKU_NUM"),
              lambda x: x >= 0, "DANMAKU_NUM参数错误，必须>=0"),
+            ("DANMAKU_ALL_OFFLINE", users.get("DANMAKU_ALL_OFFLINE"),
+             [0, 1], "DANMAKU_ALL_OFFLINE参数错误，必须为0或1"),
             ("WATCHINGLIVE", users.get("WATCHINGLIVE"),
              lambda x: x >= 0, "WATCHINGLIVE参数错误，必须>=0"),
             ("WEARMEDAL", users.get("WEARMEDAL"),
              [0, 1], "WEARMEDAL参数错误，必须为0或1"),
+            ("SIGNINGROUP", users.get("SIGNINGROUP"),
+             lambda x: x >= 0, "SIGNINGROUP参数错误，必须>=0"),
         ]
 
         for param_name, param_value, validation, error_msg in validations:
@@ -82,7 +83,7 @@ class Config:
                 if param_value not in validation:
                     raise ConfigError(error_msg)
 
-    def _extract_config(self, users: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_config(self, users: dict[str, Any]) -> dict[str, Any]:
         """提取配置参数"""
         config = self.DEFAULT_CONFIG.copy()
 
@@ -93,18 +94,18 @@ class Config:
 
         return config
 
-    def _extract_users_config(self) -> List[Dict[str, Any]]:
+    def _extract_users_config(self) -> list[dict[str, Any]]:
         """提取用户配置"""
         if not self._raw_config:
             return []
 
         return self._raw_config.get("USERS", [])
 
-    def get_users(self) -> List[Dict[str, Any]]:
+    def get_users(self) -> list[dict[str, Any]]:
         """获取用户配置列表"""
         return self.users_config
 
-    def get_notification_config(self) -> Dict[str, Any]:
+    def get_notification_config(self) -> dict[str, Any]:
         """获取通知配置"""
         if not self._raw_config:
             return {}
@@ -123,7 +124,7 @@ class Config:
         """支持字典式访问"""
         return self.config[key]
 
-    def validate_user_config(self, user_config: Dict[str, Any]) -> bool:
+    def validate_user_config(self, user_config: dict[str, Any]) -> bool:
         """验证单个用户配置"""
         required_fields = ["access_key"]
 

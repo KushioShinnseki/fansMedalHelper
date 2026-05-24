@@ -3,39 +3,40 @@
 """
 import asyncio
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
 from aiohttp import ClientSession, ClientTimeout
 
 from .api import BiliApi
 from .constants import BiliConstants
+from .danmaku_state import DanmakuStateStore
 from .exceptions import LoginError
 from .logger_manager import LogManager
-from .services import (AuthService, DanmakuService, GroupService,
-                       HeartbeatService, LikeService, MedalService, CoinService)
-from .stats_service import StatsService
+from .services import AuthService, DanmakuService, GroupService, HeartbeatService, LikeService, MedalService
+from .stats_service import ReportContext, StatsService
 
 
 class BiliUser:
     """B站用户类"""
 
-    def __init__(self, access_token: str, white_uids: str = '', banned_uids: str = '', config: Dict[str, Any] = None):
+    def __init__(self, access_token: str, white_uids: str = '', banned_uids: str = '', config: dict[str, Any] = None):
         # 基本信息
         self.mid: int = 0
         self.name: str = ""
         self.access_key: str = access_token
-        self.config: Dict[str, Any] = config or {}
+        self.config: dict[str, Any] = config or {}
         self.is_login: bool = False
 
         # 解析白名单和黑名单
         self._parse_uid_lists(white_uids, banned_uids)
 
         # 勋章列表
-        self.medals: List[Dict[str, Any]] = []
-        self.medalsNeedDo: List[Dict[str, Any]] = []
-        self.medalsOthers: List[Dict[str, Any]] = []
-        self.medalsLiving: List[Dict[str, Any]] = []
-        self.medalsNoLiving: List[Dict[str, Any]] = []
+        self.medals: list[dict[str, Any]] = []
+        self.medalsNeedWatch: list[dict[str, Any]] = []
+        self.medalsLiving: list[dict[str, Any]] = []
+        self.medalsNoLiving: list[dict[str, Any]] = []
+        self.medalsBeforeTasks: list[dict[str, Any]] = []
+        self.taskActions: dict[int, set[str]] = {}
 
         # 会话和API
         self.session = ClientSession(
@@ -44,21 +45,22 @@ class BiliUser:
 
         # 业务服务层
         self.auth_service = AuthService(self.api)
+        self.danmaku_state_store = DanmakuStateStore()
         self.medal_service = MedalService(
             self.api, self.whiteList, self.bannedList)
         self.like_service = LikeService(self.api)
-        self.danmaku_service = DanmakuService(self.api)
+        self.danmaku_service = DanmakuService(
+            self.api, state_store=self.danmaku_state_store)
         self.heartbeat_service = HeartbeatService(self.api)
         self.group_service = GroupService(self.api)
-        self.coin_service = CoinService(self.api, self.whiteList, self.bannedList)
         self.stats_service = None  # 将在登录验证后初始化
 
         # 任务状态
         self.retry_times: int = 0
         self.max_retry_times: int = BiliConstants.Tasks.MAX_RETRY_TIMES
-        self.message: List[str] = []
-        self.errmsg: List[str] = ["错误日志："]
-        self.uuids: List[str] = [str(uuid.uuid4()) for _ in range(2)]
+        self.message: list[str] = []
+        self.errmsg: list[str] = []
+        self.uuids: list[str] = [str(uuid.uuid4()) for _ in range(2)]
 
         # 日志
         self.log = LogManager.get_system_logger()  # 初始化系统日志，登录成功后会更新为用户专用日志
@@ -88,11 +90,10 @@ class BiliUser:
             self.medal_service = MedalService(
                 self.api, self.whiteList, self.bannedList, self.log)
             self.like_service = LikeService(self.api, self.log)
-            self.danmaku_service = DanmakuService(self.api, self.log)
+            self.danmaku_service = DanmakuService(
+                self.api, self.log, self.danmaku_state_store)
             self.heartbeat_service = HeartbeatService(self.api, self.log)
             self.group_service = GroupService(self.api, self.log)
-            self.coin_service = CoinService(self.api, self.whiteList, self.bannedList, self.log)
-
             # 获取初始佩戴勋章信息
             if user_info.medal:
                 medal_info = await self.api.getMedalsInfoByUid(user_info.medal['target_id'])
@@ -116,23 +117,20 @@ class BiliUser:
 
     async def get_medals(self, show_logs: bool = True):
         """获取用户勋章"""
-        classified_medals = await self.medal_service.execute(show_logs)
+        classified_medals = await self.medal_service.execute(show_logs, self.config)
 
         # 清空原有勋章列表
         self._clear_medal_lists()
 
         # 设置分类后的勋章
-        self.medalsNeedDo = classified_medals['need_do']
-        self.medalsOthers = classified_medals['others']
+        self.medals = classified_medals['all']
+        self.medalsNeedWatch = classified_medals['need_watch']
         self.medalsLiving = classified_medals['living']
         self.medalsNoLiving = classified_medals['no_living']
 
-        # 保持兼容性
-        self.medals = self.medalsNeedDo + self.medalsOthers
-
     def _clear_medal_lists(self):
         """清空勋章列表"""
-        for attr in ['medals', 'medalsNeedDo', 'medalsOthers', 'medalsLiving', 'medalsNoLiving']:
+        for attr in ['medals', 'medalsNeedWatch', 'medalsLiving', 'medalsNoLiving']:
             getattr(self, attr).clear()
 
     async def init(self):
@@ -149,17 +147,18 @@ class BiliUser:
 
         # 获取勋章信息
         await self.get_medals()
+        self.medalsBeforeTasks = list(self.medals)
+        self.taskActions = self._collect_task_actions()
 
         tasks = []
 
-        if self.medalsNeedDo:
-            self.log.info(f"共有 {len(self.medalsNeedDo)} 个牌子未满 30 亲密度")
-            tasks.extend([
-                self.like_service.execute(self.medalsLiving, self.config),
-                self.heartbeat_service.execute(self.medalsNeedDo, self.config),
-            ])
+        if self.medalsLiving:
+            tasks.append(self.like_service.execute(self.medalsLiving, self.config))
+
+        if self.medalsNeedWatch:
+            tasks.append(self.heartbeat_service.execute(self.medalsNeedWatch, self.config))
         else:
-            self.log.info("所有牌子已满 30 亲密度")
+            self.log.info(f"所有牌子已满 {BiliConstants.Tasks.WATCH_INTIMACY_LIMIT} 观看亲密度")
 
         # 执行弹幕和应援团任务
         tasks.extend([
@@ -167,32 +166,63 @@ class BiliUser:
             self.group_service.execute(self.config),
         ])
 
-        # 执行投币任务并获取结果
-        coin_result = await self.coin_service.execute(self.config)
-        
-        # 将投币结果传递给统计服务
-        if hasattr(self, 'stats_service') and self.stats_service:
-            self.stats_service.set_coin_stats(coin_result)
-
         # 等待其他任务完成（维持原始程序逻辑）
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _collect_task_actions(self) -> dict[int, set[str]]:
+        actions: dict[int, set[str]] = {}
+
+        if self.config.get('LIKE_CD') and self.medalsLiving:
+            self._add_task_actions(actions, self.medalsLiving, "点赞")
+
+        if self.config.get('WATCHINGLIVE') and self.medalsNeedWatch:
+            self._add_task_actions(actions, self.medalsNeedWatch, "观看")
+
+        danmaku_enabled = self.config.get('DANMAKU_CD') and self.config.get('DANMAKU_NUM')
+        if danmaku_enabled and self.medalsNoLiving:
+            self._add_task_actions(actions, self.medalsNoLiving, "弹幕")
+
+        return actions
+
+    def _add_task_actions(
+        self,
+        actions: dict[int, set[str]],
+        medals: list[dict[str, Any]],
+        action: str,
+    ) -> None:
+        for medal in medals:
+            target_id = medal['medal']['target_id']
+            actions.setdefault(target_id, set()).add(action)
 
     async def send_msg(self):
         """发送消息统计"""
         if not self.is_login:
             await self.session.close()
-            return self.message + self.errmsg
+            return self.message + self._error_messages()
 
         # 重新获取勋章数据以确保统计的准确性（按照原始项目逻辑，不显示日志）
         await self.get_medals(show_logs=False)
 
         # 使用统计服务生成报告
-        initial_medal = getattr(self, 'initialMedal', None)
-        report_messages = await self.stats_service.execute(self.medals, initial_medal)
+        report_context = ReportContext(
+            initial_medal=getattr(self, 'initialMedal', None),
+            before_medals=self.medalsBeforeTasks,
+            task_actions=self.taskActions,
+        )
+        report_messages = await self.stats_service.execute(
+            self.medals,
+            report_context,
+        )
         self.message.extend(report_messages)
 
         await self.session.close()
-        return self.message + self.errmsg + ['---']
+        return self.message + self._error_messages() + ['---']
+
+    def _error_messages(self) -> list[str]:
+        if not self.errmsg:
+            return []
+
+        return ["错误日志：", *self.errmsg]
 
     async def __aenter__(self):
         """异步上下文管理器入口"""
