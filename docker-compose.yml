@@ -1,0 +1,9 @@
+services:
+  fansmedalhelper:
+    image: fansmedalhelper:latest
+    container_name: fansmedalhelper
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./users.yaml:/app/fansMedalHelper/users.yaml
